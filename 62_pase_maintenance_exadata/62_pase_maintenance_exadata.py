@@ -189,13 +189,8 @@ class ExadataMaintenanceReporter:
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("⚠️ No se proporcionó un tenant. Usando el tenant por defecto ('DEFAULT').")
-        profile_name = "DEFAULT"
-    else:
-        profile_name = sys.argv[1]
     
-    reporter = ExadataMaintenanceReporter(profile_name)
+    reporter = ExadataMaintenanceReporter()
     reporter.generate_report()
 
 if __name__ == "__main__":

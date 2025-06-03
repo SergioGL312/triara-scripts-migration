@@ -3,8 +3,10 @@ import csv
 import os
 import sys
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
+import threading
 
 class OracleBackup:
     def __init__(self, config_file="~/.oci/config", profile="trmxmigtelmex"):
@@ -36,10 +38,44 @@ class OracleBackup:
         self.logger = logging.getLogger(__name__)
 
         self.csv_filename = os.path.join(self.reports_dir, f"backups-db-oracle-{self.yesterday_start.date()}.csv")
+        
+        self.request_lock = threading.Lock()
+        self.last_request_time = 0
+        self.min_request_interval = 0.5
+        self.max_retries = 3
+        self.backoff_factor = 2
+
+    def rate_limited_request(self, func, *args, **kwargs):
+        """Ejecuta una función con rate limiting y retry logic."""
+        with self.request_lock:
+            current_time = time.time()
+            time_since_last = current_time - self.last_request_time
+            if time_since_last < self.min_request_interval:
+                time.sleep(self.min_request_interval - time_since_last)
+            
+            for attempt in range(self.max_retries):
+                try:
+                    result = func(*args, **kwargs)
+                    self.last_request_time = time.time()
+                    return result
+                except oci.exceptions.ServiceError as e:
+                    if e.status == 429:
+                        wait_time = self.backoff_factor ** attempt
+                        self.logger.warning(f"Rate limit alcanzado. Esperando {wait_time}s antes del intento {attempt + 1}")
+                        time.sleep(wait_time)
+                        if attempt == self.max_retries - 1:
+                            raise
+                    else:
+                        raise
+                except Exception as e:
+                    if attempt == self.max_retries - 1:
+                        raise
+                    time.sleep(1)
 
     def get_all_compartments(self):
         """Obtiene todos los compartimentos activos del tenancy."""
-        compartments = self.identity_client.list_compartments(
+        compartments = self.rate_limited_request(
+            self.identity_client.list_compartments,
             compartment_id=self.tenancy_id,
             compartment_id_in_subtree=True,
             access_level="ANY"
@@ -49,7 +85,10 @@ class OracleBackup:
     def get_all_db_homes(self, compartment_id):
         """Obtiene todos los DB Homes dentro de un compartimento."""
         try:
-            return self.database_client.list_db_homes(compartment_id=compartment_id).data
+            return self.rate_limited_request(
+                self.database_client.list_db_homes,
+                compartment_id=compartment_id
+            ).data
         except Exception as e:
             self.logger.error(f"Error al obtener DB Homes: {str(e)}")
             return []
@@ -57,7 +96,8 @@ class OracleBackup:
     def get_databases_from_home(self, db_home_id, compartment_id):
         """Obtiene todas las bases de datos dentro de un DB Home."""
         try:
-            return self.database_client.list_databases(
+            return self.rate_limited_request(
+                self.database_client.list_databases,
                 compartment_id=compartment_id,
                 db_home_id=db_home_id
             ).data
@@ -68,7 +108,10 @@ class OracleBackup:
     def get_backups(self, database_id):
         """Obtiene los backups de una base de datos finalizados en la fecha de ayer."""
         try:
-            backups = self.database_client.list_backups(database_id=database_id).data
+            backups = self.rate_limited_request(
+                self.database_client.list_backups,
+                database_id=database_id
+            ).data
             return [
                 b for b in backups if b.time_ended and self.yesterday_start <= b.time_ended < self.yesterday_end
             ]
@@ -134,10 +177,25 @@ class OracleBackup:
     def run(self):
         """Ejecuta la recolección de backups y los guarda en un CSV."""
         compartments = self.get_all_compartments()
-        with ThreadPoolExecutor() as executor:
+        max_workers = min(2, len(compartments))
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             results = list(executor.map(self.process_and_save_data, compartments))
 
         all_backup_data = [item for result in results for item in result]
+        self.save_to_csv(all_backup_data)
+
+    def run_sequential(self):
+        """Ejecuta la recolección de backups de forma secuencial (más lento pero más seguro)."""
+        compartments = self.get_all_compartments()
+        all_backup_data = []
+        
+        for compartment in compartments:
+            self.logger.info(f"Procesando compartimento: {compartment.name}")
+            backup_data = self.process_and_save_data(compartment)
+            all_backup_data.extend(backup_data)
+            time.sleep(1)
+        
         self.save_to_csv(all_backup_data)
 
 if __name__ == "__main__":
