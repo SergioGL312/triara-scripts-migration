@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 class MysqlBackup:
-    def __init__(self, tenant, config_file="~/.oci/config"):
+    def __init__(self, tenant="trmxmigrnum", config_file="~/.oci/config"):
         self.config = oci.config.from_file(config_file, tenant)
         self.identity_client = oci.identity.IdentityClient(self.config)
         self.mysql_client = oci.mysql.DbSystemClient(self.config)
@@ -168,11 +168,5 @@ class MysqlBackup:
             print(f"📝 See log for details: {self.log_file}")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("⚠️ No se proporcionó un tenant. Usando el tenant por defecto ('DEFAULT').")
-        tenant = "DEFAULT"
-    else:
-        tenant = sys.argv[1]
-
-    mysql_backup = MysqlBackup(tenant=tenant)
+    mysql_backup = MysqlBackup()
     mysql_backup.fetch_backups()

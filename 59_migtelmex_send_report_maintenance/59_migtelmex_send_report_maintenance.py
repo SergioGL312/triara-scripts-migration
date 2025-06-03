@@ -75,7 +75,7 @@ def generate_maintenance_report():
 
 def main():
     # Configuration
-    to_email = "oracle.cloud@triara.com"
+    to_email = "" # oracle.cloud@triara.com
     bcc_email = ""  # Add BCC email if needed
     
     # Generate start and end dates

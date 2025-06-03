@@ -11,22 +11,10 @@ SMTP_USER = "sergigl312@gmail.com"
 SMTP_PASSWORD = "htjr gewv pyom vtbb"
 
 TO_RECIPIENTS = [
-    "HCLOPEZ@rednacional.com",
-    "ESOTRES@blitzsoftware.com.mx", 
-    "NORU@rednoroeste.com", 
-    "JCBADILL@rednacional.com",
-    "MNLIBERA@serviciosrnx.com",
-    "JCVENTUR@blitzsoftware.com.mx", 
-    "MPEUSEBI@rednacional.com",
-    "EPLEDEZM@serviciosrnx.com",
-    "lp.nubeoracle@triara.com", 
-    "RN_ST@rednacional.com",
-    "ramirezl@rednacional.com",
-    "JESERNA@rednacional.com", 
-    "RAMIREZL@rednacional.co"
+    # Poner los correos TO_RECIPIENTS
 ]
 BCC_RECIPIENTS = [
-    "oracle.cloud@triara.com"
+    # Poner los correos BCC_RECIPIENTS
 ]
 
 now = datetime.now()

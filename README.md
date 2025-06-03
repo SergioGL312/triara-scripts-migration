@@ -18,3 +18,4 @@ Este repositorio contiene scripts traducidos a Python, organizados por carpetas.
 | 12  | [60_migtelmex_send_report](./60_migtelmex_send_report/) | [Traducción del script 12.](./60_migtelmex_send_report/README.md) |
 | 13  | [61_oao_migrnum_send_report_maintenance](./61_oao_migrnum_send_report_maintenance/) | [Traducción del script 13.](./61_oao_migrnum_send_report_maintenance/README.md) |
 | 14  | [62_pase_maintenance_exadata](./62_pase_maintenance_exadata/) | [Traducción del script 14.](./62_pase_maintenance_exadata//README.md) |
+| 15  | [63_pase_send_report_maintenance](./63_pase_send_report_maintenance/) | [Traducción del script 15.](./63_pase_send_report_maintenance//README.md) |

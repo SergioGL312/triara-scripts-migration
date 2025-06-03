@@ -1,8 +1,8 @@
-# Script 54_migrnum-send-report-maintenance
+# Script 63_pase_send_report_maintenance
 
 ## Descripción
 
-Este script automatiza el envío por correo electrónico del **reporte de mantenimientos de Exadata** generado por el script `53_migrnum_exadata_maintenance_report.py`.
+Este script automatiza el envío por correo electrónico del **reporte de mantenimientos de Exadata Pase** generado por el script `63_pase_send_report_maintenance.py`.
 
 Evalúa si el archivo del reporte existe y, según su contenido:
 
@@ -21,9 +21,6 @@ Evalúa si el archivo del reporte existe y, según su contenido:
   - Principales: definidos en la lista `TO_RECIPIENTS`
   - Copia oculta (BCC): `oracle.cloud@triara.com`
 - **Asunto del correo**: incluye la fecha del rango de mantenimientos (`YYYY-MM-DD`)
-- **Adjunto (opcional)**:  
-  `backup-report/reports/rnum/rnum-maintenance-exadata-YYYY-MM-DD.csv`
-
 ---
 
 ### Seguridad SMTP
@@ -38,6 +35,6 @@ SMTP_PASSWORD = "htjr gewv pyom vtbb"
 ## Uso
 ```bash
 pip install -r requirements.txt
-python 54_migrnum-send-report-maintenance.py
+python 63_pase_send_report_maintenance.py
 ```
 

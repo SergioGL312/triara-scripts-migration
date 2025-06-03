@@ -12,12 +12,11 @@ SMTP_USER = "sergigl312@gmail.com"
 SMTP_PASSWORD = "htjr gewv pyom vtbb"
 
 TO_RECIPIENTS = [
-    "earaujo@rednacional.com", "icabrera@rednacional.com", "vcardoso@rednacional.com",
-    "jcbadill@rednacional.com", "gesquive@rednacional.com", "egmata@blitzsoftware.com.mx",
-    "ggromero@rednacional.com", "hsalazaj@rednacional.com", "ohvillar@rednacional.com",
-    "salinasg@rednacional.com"
+    # Poner los correos TO_RECIPIENTS
 ]
-BCC_RECIPIENTS = ["oracle.cloud@triara.com"]
+BCC_RECIPIENTS = [
+    # Poner los correos BCC_RECIPIENTS
+]
 
 yesterday = datetime.now() - timedelta(days=1)
 date_str = yesterday.strftime('%Y-%m-%d')

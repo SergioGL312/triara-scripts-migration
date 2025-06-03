@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 class OracleBackup:
-    def __init__(self, tenant, config_file="~/.oci/config"):
+    def __init__(self, tenant="trmxmigrnum", config_file="~/.oci/config"):
         self.config = oci.config.from_file(config_file, tenant)
         self.identity_client = oci.identity.IdentityClient(self.config)
         self.database_client = oci.database.DatabaseClient(self.config)
@@ -160,11 +160,5 @@ class OracleBackup:
         self.save_to_csv(all_backup_data)
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("⚠️ No se proporcionó un tenant. Usando el tenant por defecto ('DEFAULT').")
-        tenant = "DEFAULT"
-    else:
-        tenant = sys.argv[1]
-
-    oracle_backup = OracleBackup(tenant=tenant)
+    oracle_backup = OracleBackup()
     oracle_backup.run()
