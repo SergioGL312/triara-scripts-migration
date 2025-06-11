@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timedelta
 import oci
+import sys
 from pathlib import Path
 
 
@@ -16,7 +17,7 @@ class ExadataMaintenanceReporter:
         
         logging.basicConfig(
             filename=self.log_file,
-            level=logging.DEBUG,
+            level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
         self.logger = logging.getLogger(__name__)
@@ -31,9 +32,9 @@ class ExadataMaintenanceReporter:
             self.config = oci.config.from_file(profile_name=profile_name)
             self.identity_client = oci.identity.IdentityClient(self.config)
             self.database_client = oci.database.DatabaseClient(self.config)
-            self.logger.info(f"Cliente OCI inicializado correctamente con perfil: {profile_name}")
+            self.logger.info(f"OCI client initialized successfully with profile: {profile_name}")
         except Exception as e:
-            self.logger.error(f"Error inicializando cliente OCI: {str(e)}")
+            self.logger.error(f"Error initializing OCI client: {str(e)}")
             raise
         
         self.tenancy_id = self.config["tenancy"]
@@ -51,7 +52,7 @@ class ExadataMaintenanceReporter:
             
         compartments = []
         try:
-            self.logger.info(f"Listando compartimentos desde: {parent_compartment_id}")
+            self.logger.info(f"Listing compartments from: {parent_compartment_id}")
             response = self.identity_client.list_compartments(
                 parent_compartment_id,
                 compartment_id_in_subtree=True,
@@ -61,29 +62,29 @@ class ExadataMaintenanceReporter:
             for compartment in response.data:
                 if compartment.lifecycle_state == "ACTIVE":
                     compartments.append(compartment.id)
-                    self.logger.debug(f"Compartimento activo encontrado: {compartment.name} - {compartment.id}")
+                    self.logger.debug(f"Active compartment found: {compartment.name} - {compartment.id}")
 
             compartments.append(self.tenancy_id)
-            self.logger.info(f"Compartimentos encontrados: {len(compartments)}")
+            self.logger.info(f"Total compartments found: {len(compartments)}")
             
             self.compartments = compartments
         except Exception as e:
-            self.logger.error(f"Error obteniendo compartimentos: {str(e)}")
+            self.logger.error(f"Error getting compartments: {str(e)}")
             raise
         
         return compartments
     
     def list_exadata_infrastructures(self, compartments):
-        self.logger.info("Iniciando búsqueda de infraestructuras Exadata...")
+        self.logger.info("Starting search for Exadata infrastructures...")
         
         for compartment_id in compartments:
             try:
-                self.logger.debug(f"Buscando Exadata en compartimento: {compartment_id}")
+                self.logger.debug(f"Searching Exadata in compartment: {compartment_id}")
                 response = self.database_client.list_cloud_exadata_infrastructures(
                     compartment_id=compartment_id
                 )
                 
-                self.logger.debug(f"Respuesta para compartimento {compartment_id}: {len(response.data)} Exadata encontrados")
+                self.logger.debug(f"Response for compartment {compartment_id}: {len(response.data)} Exadata found")
                 
                 for exadata in response.data:
                     self.exadata_info[exadata.display_name] = {
@@ -91,187 +92,186 @@ class ExadataMaintenanceReporter:
                         'compartment_id': compartment_id,
                         'lifecycle_state': exadata.lifecycle_state
                     }
-                    self.logger.info(f"Exadata encontrado: {exadata.display_name} - {exadata.id} - Estado: {exadata.lifecycle_state}")
+                    self.logger.info(f"Exadata found: {exadata.display_name} - {exadata.id} - State: {exadata.lifecycle_state}")
                     
             except Exception as e:
-                self.logger.error(f"Error obteniendo Exadata en compartimento {compartment_id}: {str(e)}")
+                self.logger.error(f"Error getting Exadata in compartment {compartment_id}: {str(e)}")
         
-        self.logger.info(f"Total de Exadata encontrados: {len(self.exadata_info)}")
+        self.logger.info(f"Total Exadata found: {len(self.exadata_info)}")
         if not self.exadata_info:
-            self.logger.warning("¡ADVERTENCIA! No se encontraron infraestructuras Exadata")
+            self.logger.warning("WARNING! No Exadata infrastructures found")
     
-    def get_date_range(self, days_ahead=30):
-        current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        future_date = current_date + timedelta(days=days_ahead)
+    def get_date_range(self):
+        current_date = datetime.now().replace(hour=19, minute=0, second=0, microsecond=0)
+        future_date = current_date + timedelta(days=7)
         
-        current_str = current_date.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-        future_str = future_date.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+        current_str = current_date.strftime('%Y-%m-%dT%H:%M:%S')
+        future_str = future_date.strftime('%Y-%m-%dT%H:%M:%S')
         
-        self.logger.info(f"Rango de búsqueda: {current_str} hasta {future_str}")
+        self.logger.info(f"Search range: {current_str} to {future_str}")
         return current_str, future_str
     
     def convert_to_mexico_time(self, utc_time_str):
         try:
-            if utc_time_str.endswith('Z'):
-                utc_time_str = utc_time_str[:-1] + '+00:00'
-            elif '+' not in utc_time_str and 'Z' not in utc_time_str:
-                utc_time_str += '+00:00'
-                
-            utc_time = datetime.fromisoformat(utc_time_str)
+            if isinstance(utc_time_str, datetime):
+                utc_time = utc_time_str
+            else:
+                if utc_time_str.endswith('Z'):
+                    utc_time_str = utc_time_str[:-1] + '+00:00'
+                elif '+' not in utc_time_str and 'Z' not in utc_time_str:
+                    utc_time_str += '+00:00'
+                utc_time = datetime.fromisoformat(utc_time_str)
+            
             mexico_time = utc_time - timedelta(hours=6)
-            return mexico_time.strftime('%Y-%m-%d %H:%M:%S CST')
+            return mexico_time.strftime('%Y-%m-%dT%H:%M:%S')
         except Exception as e:
-            self.logger.error(f"Error convirtiendo tiempo {utc_time_str}: {str(e)}")
-            return utc_time_str
+            self.logger.error(f"Error converting time {utc_time_str}: {str(e)}")
+            return "N/A"
     
     def format_patching_time(self, minutes):
         if not minutes:
             return "N/A"
-        hours = minutes // 60
-        remaining_minutes = minutes % 60
-        if hours > 0:
+        try:
+            minutes = int(minutes)
+            hours = minutes // 60
+            remaining_minutes = minutes % 60
             return f"{hours}h {remaining_minutes}m"
-        else:
-            return f"{remaining_minutes}m"
+        except:
+            return "N/A"
 
     def get_maintenance_info(self, exadata_name, exadata_data):
         maintenance_runs = []
         current_date, future_date = self.get_date_range()
         exadata_ocid = exadata_data['ocid']
         
-        self.logger.info(f"=== Buscando mantenimientos para {exadata_name} ===")
+        self.logger.info(f"=== Searching maintenance for {exadata_name} ===")
         self.logger.info(f"OCID: {exadata_ocid}")
-        self.logger.info(f"Rango de fechas: {current_date} hasta {future_date}")
+        self.logger.info(f"Date range: {current_date} to {future_date}")
         
         try:
             for compartment_id in self.compartments:
                 try:
-                    self.logger.debug(f"Buscando mantenimientos en compartimento: {compartment_id}")
+                    self.logger.debug(f"Searching maintenance in compartment: {compartment_id}")
                     
-                    response_all = self.database_client.list_maintenance_runs(
-                        compartment_id=compartment_id
-                    )
-                    
-                    self.logger.debug(f"Total mantenimientos en compartimento {compartment_id}: {len(response_all.data)}")
-                    
-                    response_filtered = self.database_client.list_maintenance_runs(
+                    response = self.database_client.list_maintenance_runs(
                         compartment_id=compartment_id,
                         target_resource_id=exadata_ocid
                     )
                     
-                    self.logger.debug(f"Mantenimientos para {exadata_name} en compartimento {compartment_id}: {len(response_filtered.data)}")
+                    self.logger.debug(f"Maintenance runs for {exadata_name} in compartment {compartment_id}: {len(response.data)}")
                     
-                    for run in response_filtered.data:
-                        self.logger.info(f"Mantenimiento encontrado:")
-                        self.logger.info(f"  - Nombre: {run.display_name}")
-                        self.logger.info(f"  - Estado: {run.lifecycle_state}")
-                        self.logger.info(f"  - Tipo: {getattr(run, 'maintenance_type', 'N/A')}")
-                        self.logger.info(f"  - Subtipo: {getattr(run, 'maintenance_subtype', 'N/A')}")
-                        self.logger.info(f"  - Programado: {run.time_scheduled}")
-                        self.logger.info(f"  - Target Resource: {getattr(run, 'target_resource_id', 'N/A')}")
+                    for run in response.data:
+                        self.logger.info(f"Maintenance found:")
+                        self.logger.info(f"  - Name: {run.display_name}")
+                        self.logger.info(f"  - State: {run.lifecycle_state}")
+                        self.logger.info(f"  - Type: {getattr(run, 'maintenance_type', 'N/A')}")
+                        self.logger.info(f"  - Subtype: {getattr(run, 'maintenance_subtype', 'N/A')}")
+                        self.logger.info(f"  - Scheduled: {run.time_scheduled}")
                         
-                        valid_states = ["SCHEDULED", "IN_PROGRESS", "SUCCEEDED", "SKIPPED", "FAILED"]
-                        if run.lifecycle_state not in valid_states:
-                            self.logger.info(f"Omitiendo mantenimiento con estado: {run.lifecycle_state}")
-                            continue
-
                         if run.time_scheduled:
-                            scheduled_time = run.time_scheduled.isoformat()
+                            if hasattr(run.time_scheduled, 'strftime'):
+                                scheduled_time = run.time_scheduled.strftime('%Y-%m-%dT%H:%M:%S')
+                            else:
+                                scheduled_time = str(run.time_scheduled)
                             
-                            scheduled_dt = run.time_scheduled.replace(tzinfo=None)
-                            current_dt = datetime.fromisoformat(current_date.replace('Z', ''))
-                            future_dt = datetime.fromisoformat(future_date.replace('Z', ''))
+                            self.logger.debug(f"Comparing dates:")
+                            self.logger.debug(f"  Current: {current_date}")
+                            self.logger.debug(f"  Scheduled: {scheduled_time}")
+                            self.logger.debug(f"  Future: {future_date}")
                             
-                            self.logger.debug(f"Comparando fechas:")
-                            self.logger.debug(f"  Actual: {current_dt}")
-                            self.logger.debug(f"  Programado: {scheduled_dt}")
-                            self.logger.debug(f"  Futuro: {future_dt}")
-                            self.logger.debug(f"  En rango: {current_dt <= scheduled_dt <= future_dt}")
-                            
-                            mexico_time = self.convert_to_mexico_time(scheduled_time)
-                            
-                            patching_time = "N/A"
-                            if hasattr(run, 'estimated_patching_time') and run.estimated_patching_time:
-                                if hasattr(run.estimated_patching_time, 'total_estimated_patching_time'):
+                            if current_date <= scheduled_time <= future_date:
+                                mexico_time = self.convert_to_mexico_time(scheduled_time)
+                                
+                                patching_time = "N/A"
+                                if (hasattr(run, 'estimated_patching_time') and 
+                                    run.estimated_patching_time and
+                                    hasattr(run.estimated_patching_time, 'total_estimated_patching_time')):
                                     minutes = run.estimated_patching_time.total_estimated_patching_time
                                     patching_time = self.format_patching_time(minutes)
-                            
-                            maintenance_data = [
-                                exadata_name,
-                                getattr(run, 'maintenance_subtype', 'N/A') or getattr(run, 'maintenance_type', 'N/A') or "N/A",
-                                run.lifecycle_state,
-                                scheduled_time,
-                                mexico_time,
-                                patching_time
-                            ]
-                            maintenance_runs.append(maintenance_data)
-                            self.logger.info(f"✓ Mantenimiento agregado al reporte")
+                                
+                                maintenance_type = "N/A"
+                                if hasattr(run, 'maintenance_subtype') and run.maintenance_subtype:
+                                    maintenance_type = run.maintenance_subtype
+                                elif hasattr(run, 'maintenance_type') and run.maintenance_type:
+                                    maintenance_type = run.maintenance_type
+                                
+                                maintenance_data = [
+                                    exadata_name,
+                                    maintenance_type,
+                                    scheduled_time,
+                                    mexico_time,
+                                    patching_time
+                                ]
+                                maintenance_runs.append(maintenance_data)
+                                self.logger.info(f"✓ Maintenance added to report")
+                            else:
+                                self.logger.info(f"Maintenance outside date range: {scheduled_time}")
                         else:
-                            self.logger.warning(f"Mantenimiento sin fecha programada: {run.display_name}")
+                            self.logger.warning(f"Maintenance without scheduled time: {run.display_name}")
                             
                 except Exception as e:
-                    self.logger.error(f"Error al obtener mantenimiento en compartimento {compartment_id} para {exadata_name}: {str(e)}")
+                    self.logger.error(f"Error getting maintenance in compartment {compartment_id} for {exadata_name}: {str(e)}")
             
-            self.logger.info(f"Total de mantenimientos encontrados para {exadata_name}: {len(maintenance_runs)}")
+            self.logger.info(f"Total maintenance found for {exadata_name}: {len(maintenance_runs)}")
             return maintenance_runs
             
         except Exception as e:
-            self.logger.error(f"Error general al obtener mantenimiento para {exadata_name}: {str(e)}")
-            return []    
+            self.logger.error(f"General error getting maintenance for {exadata_name}: {str(e)}")
+            return []
 
     def generate_report(self):
-        self.logger.info("=== INICIANDO GENERACIÓN DE REPORTE ===")
+        self.logger.info("=== STARTING REPORT GENERATION ===")
         all_maintenance_runs = []
         
         try:
             compartments = self.list_compartments(self.tenancy_id)
-            self.logger.info(f"Compartimentos a revisar: {len(compartments)}")
+            self.logger.info(f"Compartments to check: {len(compartments)}")
             
             self.list_exadata_infrastructures(compartments)
             
             if not self.exadata_info:
-                self.logger.error("No se encontraron infraestructuras Exadata. Verifica permisos y configuración.")
-                with open(self.output_file, 'w') as f:
-                    f.write("No se encontraron infraestructuras Exadata.\n")
-                    f.write("Verifica permisos y configuración del perfil OCI.\n")
+                self.logger.error("No Exadata infrastructures found. Check permissions and configuration.")
+                with open(self.output_file, 'w', encoding='utf-8') as f:
+                    f.write("No Exadata infrastructures found.\n")
+                    f.write("Check permissions and OCI profile configuration.\n")
                 return
             
             for exadata_name, exadata_data in self.exadata_info.items():
-                self.logger.info(f"Procesando mantenimiento para {exadata_name}")
+                self.logger.info(f"Processing maintenance for {exadata_name}")
                 maintenance_runs = self.get_maintenance_info(exadata_name, exadata_data)
                 all_maintenance_runs.extend(maintenance_runs)
             
             with open(self.output_file, 'w', encoding='utf-8') as f:
                 if not all_maintenance_runs:
-                    f.write("No existen mantenimientos programados en los próximos 30 días.\n")
-                    f.write(f"Infraestructuras Exadata revisadas: {len(self.exadata_info)}\n")
-                    f.write(f"Compartimentos revisados: {len(self.compartments)}\n")
-                    self.logger.info("No se encontraron mantenimientos programados")
+                    f.write("No scheduled maintenances in the next 7 days.\n")
+                    f.write(f"Exadata infrastructures checked: {len(self.exadata_info)}\n")
+                    f.write(f"Compartments checked: {len(self.compartments)}\n")
+                    self.logger.info("No scheduled maintenances found")
                 else:
-                    f.write("EXADATA-NAME,MAINTENANCE-TYPE,STATUS,SCHEDULED-UTC,SCHEDULED-MEXICO,PATCHING-TIME\n")
+                    f.write("EXADATA-NAME,MAINTENANCE-TYPE,SCHEDULED-UTC,SCHEDULED-MEXICO,PATCHING-TIME\n")
                     
                     for run in all_maintenance_runs:
                         escaped_run = [str(item).replace('"', '""') for item in run]
                         f.write(','.join([f'"{item}"' for item in escaped_run]) + '\n')
                     
-                    self.logger.info(f"Reporte generado exitosamente con {len(all_maintenance_runs)} mantenimientos")
+                    self.logger.info(f"Report generated successfully with {len(all_maintenance_runs)} maintenances")
             
-            self.logger.info(f"Archivo generado: {self.output_file}")
-            print(f"Reporte generado en: {self.output_file}")
+            self.logger.info(f"Output file: {self.output_file}")
+            print(f"Report generated: {self.output_file}")
             
         except Exception as e:
-            self.logger.error(f"Error generando reporte: {str(e)}")
+            self.logger.error(f"Error generating report: {str(e)}")
             raise
 
 
 def main():
     try:
-        print("Iniciando Exadata Maintenance Reporter...")
+        print("Starting Exadata Maintenance Reporter...")
         reporter = ExadataMaintenanceReporter()
         reporter.generate_report()
-        print("Proceso completado. Revisa el archivo de log para más detalles.")
+        print("Process completed. Check log file for details.")
     except Exception as e:
-        print(f"Error ejecutando el script: {str(e)}")
+        print(f"Error executing script: {str(e)}")
         raise
 
 if __name__ == "__main__":
