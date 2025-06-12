@@ -71,41 +71,53 @@ class ExadataMaintenanceReporter:
         
         return compartments
 
+    def get_cloud_at_customer_exadatas(self, compartment_id):
+        """Obtiene específicamente Exadata Cloud@Customer"""
+        try:
+            # Listar todas las Exadata Infrastructures
+            all_exadatas = self.database_client.list_cloud_exadata_infrastructures(
+                compartment_id=compartment_id
+            ).data
+            
+            # Filtrar solo las que son Cloud@Customer
+            cloud_at_customer = []
+            for exadata in all_exadatas:
+                if hasattr(exadata, 'infrastructure_type'):
+                    if exadata.infrastructure_type == 'CLOUD_AT_CUSTOMER':
+                        cloud_at_customer.append(exadata)
+                elif "CLOUD_AT_CUSTOMER" in exadata.display_name.upper():
+                    cloud_at_customer.append(exadata)
+            
+            return cloud_at_customer
+            
+        except ServiceError as e:
+            self.logger.error(f"Error al buscar Exadatas Cloud@Customer: {str(e)}")
+            return []
+
     def get_all_exadatas(self):
-        """Obtiene todas las Exadatas (Cloud y Cloud at Customer) en todos los compartments"""
+        """Obtiene todas las Exadatas Cloud@Customer en todos los compartments"""
         exadatas = []
         compartments = self.get_all_compartments()
         
         for compartment in compartments:
             try:
-                self.logger.info(f"Buscando Exadatas en compartment: {compartment.name}")
+                self.logger.info(f"Buscando Exadatas Cloud@Customer en compartment: {compartment.name}")
                 
-                # Buscar Cloud Exadata Infrastructures
-                cloud_exadatas = self.database_client.list_cloud_exadata_infrastructures(
-                    compartment_id=compartment.id
-                ).data
+                # Obtener solo Exadata Cloud@Customer
+                exadata_list = self.get_cloud_at_customer_exadatas(compartment.id)
                 
-                # Buscar Exadata Cloud at Customer Infrastructures
-                cloud_at_customer_exadatas = self.database_client.list_cloud_exadata_infrastructures(
-                    compartment_id=compartment.id,
-                    infrastructure_type='CLOUD_AT_CUSTOMER'
-                ).data
-                
-                # Combinar resultados
-                all_exadatas = cloud_exadatas + cloud_at_customer_exadatas
-                
-                for exadata in all_exadatas:
+                for exadata in exadata_list:
                     exadatas.append({
                         "id": exadata.id,
                         "name": exadata.display_name,
                         "compartment_id": compartment.id,
                         "compartment_name": compartment.name,
-                        "type": "CLOUD" if exadata.infrastructure_type == 'CLOUD' else 'CLOUD_AT_CUSTOMER'
+                        "type": "CLOUD_AT_CUSTOMER"
                     })
                 
-                self.logger.info(f"Encontradas {len(all_exadatas)} Exadatas en {compartment.name}")
+                self.logger.info(f"Encontradas {len(exadata_list)} Exadatas Cloud@Customer en {compartment.name}")
                 
-            except ServiceError as e:
+            except Exception as e:
                 self.logger.error(f"Error al buscar Exadatas en compartment {compartment.name}: {str(e)}")
                 continue
         
@@ -161,7 +173,7 @@ class ExadataMaintenanceReporter:
         return filtered
 
     def generate_report(self):
-        """Genera el reporte CSV"""
+        """Genera el reporte CSV específico para Cloud@Customer"""
         found_maintenance = False
         
         try:
@@ -169,20 +181,24 @@ class ExadataMaintenanceReporter:
                 writer = csv.writer(csvfile)
                 writer.writerow([
                     "EXADATA-NAME",
-                    "EXADATA-TYPE",
+                    "TIPO-EXADATA",
                     "COMPARTMENT",
-                    "MAINTENANCE-TYPE",
-                    "SCHEDULED-UTC",
-                    "SCHEDULED-MEXICO",
-                    "PATCHING-TIME",
-                    "DESCRIPTION"
+                    "TIPO-MANTENIMIENTO",
+                    "PROGRAMADO-UTC",
+                    "PROGRAMADO-MEXICO",
+                    "TIEMPO-PARCHE",
+                    "DESCRIPCION"
                 ])
                 
                 exadatas = self.get_all_exadatas()
-                self.logger.info(f"Procesando {len(exadatas)} Exadatas")
+                self.logger.info(f"Procesando {len(exadatas)} Exadatas Cloud@Customer")
+                
+                if not exadatas:
+                    writer.writerow(["No se encontraron Exadatas Cloud@Customer"])
+                    return
                 
                 for exadata in exadatas:
-                    self.logger.info(f"Procesando Exadata: {exadata['name']}")
+                    self.logger.info(f"Procesando Exadata Cloud@Customer: {exadata['name']}")
                     maintenance_runs = self.get_maintenance_info(exadata["id"], exadata["compartment_id"])
                     
                     if not maintenance_runs:
@@ -218,7 +234,7 @@ class ExadataMaintenanceReporter:
                         ])
                 
                 if not found_maintenance:
-                    writer.writerow(["No existen mantenimientos programados en ninguna Exadata"])
+                    writer.writerow(["No existen mantenimientos programados para las Exadatas Cloud@Customer"])
                     
         except Exception as e:
             self.logger.error(f"Error al generar reporte: {str(e)}")
@@ -226,7 +242,7 @@ class ExadataMaintenanceReporter:
 
     def run(self):
         """Ejecuta el proceso completo"""
-        self.logger.info("Iniciando generación de reporte de mantenimiento de Exadatas")
+        self.logger.info("Iniciando generación de reporte de mantenimiento para Exadata Cloud@Customer")
         try:
             self.generate_report()
             self.logger.info("Reporte generado exitosamente")
@@ -241,6 +257,13 @@ if __name__ == "__main__":
     success = reporter.run()
     
     if success:
-        print(f"Reporte generado exitosamente en: {reporter.output_file}")
+        print(f"Reporte de Exadata Cloud@Customer generado exitosamente en: {reporter.output_file}")
+        print(f"Detalles del reporte:")
+        print(f"- Exadatas procesadas: Cloud@Customer exclusivamente")
+        print(f"- Rango de fechas analizado: {reporter.current_date} a {reporter.future_date}")
     else:
         print(f"Ocurrió un error al generar el reporte. Verifique el archivo de log: {reporter.log_file}")
+        print("Posibles causas:")
+        print("- Permisos insuficientes para leer Exadata Cloud@Customer")
+        print("- Problemas de conexión con la API de OCI")
+        print("- Configuración incorrecta del perfil OCI")
