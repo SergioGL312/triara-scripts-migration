@@ -5,9 +5,11 @@ import csv
 from oci.config import from_file
 from oci.identity import IdentityClient
 from oci.database import DatabaseClient
+from oci.exceptions import ServiceError
 
 class ExadataMaintenanceReporter:
     def __init__(self, profile_name="DEFAULT"):
+        # Configuración de directorios
         self.base_dir = "backup-report"
         self.reports_dir = os.path.join(self.base_dir, "reports", "pase")
         self.logs_dir = os.path.join(self.base_dir, "scripts", "log")
@@ -15,10 +17,12 @@ class ExadataMaintenanceReporter:
         os.makedirs(self.reports_dir, exist_ok=True)
         os.makedirs(self.logs_dir, exist_ok=True)
         
+        # Configuración de archivos de salida
         current_date = datetime.now().strftime('%Y-%m-%d')
         self.output_file = os.path.join(self.reports_dir, f"pase-maintenance-exadata-{current_date}.csv")
         self.log_file = os.path.join(self.logs_dir, "pase-maintenance-exadata.log")
         
+        # Configuración de logging
         logging.basicConfig(
             filename=self.log_file,
             level=logging.INFO,
@@ -26,6 +30,11 @@ class ExadataMaintenanceReporter:
         )
         self.logger = logging.getLogger(__name__)
         
+        # Configuración de fechas
+        self.current_date = datetime.now().replace(hour=19, minute=0, second=0, microsecond=0)
+        self.future_date = self.current_date + timedelta(days=7)
+        
+        # Inicialización de clientes OCI
         try:
             self.config = from_file(profile_name=profile_name)
             self.identity_client = IdentityClient(self.config)
@@ -34,9 +43,6 @@ class ExadataMaintenanceReporter:
         except Exception as e:
             self.logger.error(f"Error al configurar OCI SDK: {str(e)}")
             raise
-        
-        self.current_date = datetime.now().replace(hour=19, minute=0, second=0, microsecond=0)
-        self.future_date = self.current_date + timedelta(days=7)
         
         self.logger.info(f"Fecha actual: {self.current_date}")
         self.logger.info(f"Fecha futura: {self.future_date}")
@@ -59,35 +65,47 @@ class ExadataMaintenanceReporter:
             compartments.extend(child_compartments)
             self.logger.info(f"Encontrados {len(compartments)} compartments")
             
-        except Exception as e:
+        except ServiceError as e:
             self.logger.error(f"Error al obtener compartments: {str(e)}")
             raise
         
         return compartments
 
     def get_all_exadatas(self):
-        """Obtiene todas las Exadatas en todos los compartments"""
+        """Obtiene todas las Exadatas (Cloud y Cloud at Customer) en todos los compartments"""
         exadatas = []
         compartments = self.get_all_compartments()
         
         for compartment in compartments:
             try:
                 self.logger.info(f"Buscando Exadatas en compartment: {compartment.name}")
-                exadata_list = self.database_client.list_cloud_exadata_infrastructures(
+                
+                # Buscar Cloud Exadata Infrastructures
+                cloud_exadatas = self.database_client.list_cloud_exadata_infrastructures(
                     compartment_id=compartment.id
                 ).data
                 
-                for exadata in exadata_list:
+                # Buscar Exadata Cloud at Customer Infrastructures
+                cloud_at_customer_exadatas = self.database_client.list_cloud_exadata_infrastructures(
+                    compartment_id=compartment.id,
+                    infrastructure_type='CLOUD_AT_CUSTOMER'
+                ).data
+                
+                # Combinar resultados
+                all_exadatas = cloud_exadatas + cloud_at_customer_exadatas
+                
+                for exadata in all_exadatas:
                     exadatas.append({
                         "id": exadata.id,
                         "name": exadata.display_name,
                         "compartment_id": compartment.id,
-                        "compartment_name": compartment.name
+                        "compartment_name": compartment.name,
+                        "type": "CLOUD" if exadata.infrastructure_type == 'CLOUD' else 'CLOUD_AT_CUSTOMER'
                     })
                 
-                self.logger.info(f"Encontradas {len(exadata_list)} Exadatas en {compartment.name}")
+                self.logger.info(f"Encontradas {len(all_exadatas)} Exadatas en {compartment.name}")
                 
-            except Exception as e:
+            except ServiceError as e:
                 self.logger.error(f"Error al buscar Exadatas en compartment {compartment.name}: {str(e)}")
                 continue
         
@@ -98,12 +116,13 @@ class ExadataMaintenanceReporter:
         try:
             maintenance_runs = self.database_client.list_maintenance_runs(
                 compartment_id=compartment_id,
-                target_resource_id=exadata_id
+                target_resource_id=exadata_id,
+                target_resource_type="CLOUD_EXADATA_INFRASTRUCTURE"
             ).data
             
             return maintenance_runs
             
-        except Exception as e:
+        except ServiceError as e:
             self.logger.error(f"Error al obtener mantenimientos para Exadata {exadata_id}: {str(e)}")
             return None
 
@@ -131,7 +150,8 @@ class ExadataMaintenanceReporter:
                         "type": run.maintenance_subtype,
                         "scheduled_utc": run.time_scheduled,
                         "scheduled_mexico": mexico_time_str,
-                        "patching_time": patching_time
+                        "patching_time": patching_time,
+                        "description": run.description
                     })
                     
             except Exception as e:
@@ -145,14 +165,17 @@ class ExadataMaintenanceReporter:
         found_maintenance = False
         
         try:
-            with open(self.output_file, mode='w', newline='') as csvfile:
+            with open(self.output_file, mode='w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.writer(csvfile)
                 writer.writerow([
                     "EXADATA-NAME",
+                    "EXADATA-TYPE",
+                    "COMPARTMENT",
                     "MAINTENANCE-TYPE",
                     "SCHEDULED-UTC",
                     "SCHEDULED-MEXICO",
-                    "PATCHING-TIME"
+                    "PATCHING-TIME",
+                    "DESCRIPTION"
                 ])
                 
                 exadatas = self.get_all_exadatas()
@@ -163,7 +186,12 @@ class ExadataMaintenanceReporter:
                     maintenance_runs = self.get_maintenance_info(exadata["id"], exadata["compartment_id"])
                     
                     if not maintenance_runs:
-                        writer.writerow([exadata["name"], "No se pudo obtener información de mantenimiento"])
+                        writer.writerow([
+                            exadata["name"],
+                            exadata["type"],
+                            exadata["compartment_name"],
+                            "No se pudo obtener información de mantenimiento"
+                        ])
                         continue
                     
                     filtered_runs = self.filter_maintenance_runs(maintenance_runs)
@@ -172,14 +200,22 @@ class ExadataMaintenanceReporter:
                         for run in filtered_runs:
                             writer.writerow([
                                 exadata["name"],
+                                exadata["type"],
+                                exadata["compartment_name"],
                                 run["type"],
                                 run["scheduled_utc"],
                                 run["scheduled_mexico"],
-                                run["patching_time"]
+                                run["patching_time"],
+                                run["description"]
                             ])
                         found_maintenance = True
                     else:
-                        writer.writerow([exadata["name"], "No existen mantenimientos programados"])
+                        writer.writerow([
+                            exadata["name"],
+                            exadata["type"],
+                            exadata["compartment_name"],
+                            "No existen mantenimientos programados"
+                        ])
                 
                 if not found_maintenance:
                     writer.writerow(["No existen mantenimientos programados en ninguna Exadata"])
@@ -205,6 +241,6 @@ if __name__ == "__main__":
     success = reporter.run()
     
     if success:
-        print("Reporte generado exitosamente")
+        print(f"Reporte generado exitosamente en: {reporter.output_file}")
     else:
-        print("Ocurrió un error al generar el reporte. Verifique el archivo de log.")
+        print(f"Ocurrió un error al generar el reporte. Verifique el archivo de log: {reporter.log_file}")
